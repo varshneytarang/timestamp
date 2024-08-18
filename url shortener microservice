@@ -1,0 +1,83 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const mongoose = require("mongoose");
+const shortId = require("shortid");
+
+const app = express();
+
+mongoose.connect("mongodb+srv://tarang:test1234@cluster0.4ogzwy8.mongodb.net/")
+    .then(() => console.log("Database is connected"))
+    .catch((err) => console.log(err));
+
+const urlSchema = new mongoose.Schema({
+    short: {
+        type: String,
+        required: true
+    },
+    original: {
+        type: String,
+        required: true
+    }
+});
+
+const Url = mongoose.model("urls", urlSchema);
+
+const port = process.env.PORT || 5000;
+
+app.use(cors());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+app.use('/public', express.static(`${process.cwd()}/public`));
+
+app.get('/', function(req, res) {
+  res.sendFile(process.cwd() + '/views/index.html');
+});
+
+function isHttpValid(str) {
+    try {
+        const newUrl = new URL(str);
+        return newUrl.protocol === 'http:' || newUrl.protocol === 'https:';
+    } catch (err) {
+        return false;
+    }
+}
+
+app.post("/api/shorturl", async (req, res) => {
+    const body = req.body;
+
+    if (!isHttpValid(body.url)) {
+        return res.json({
+            error: "invalid url"
+        });
+    }
+
+    const num = shortId.generate();
+    let postr = await Url.create({
+        short: num,
+        original: body.url
+    });
+
+    return res.json({
+        original_url: body.url,
+        short_url: num
+    });
+});
+
+app.get("/api/shorturl/:short_url", async (req, res) => {
+    const dep = req.params.short_url;
+    let url = await Url.findOne({ short: dep });
+
+    if (url) {
+        return res.redirect(url.original);
+    } else {
+        return res.json({
+            error: "No URL found"
+        });
+    }
+});
+
+app.listen(port, function() {
+  console.log(`Listening on port ${port}`);
+});
