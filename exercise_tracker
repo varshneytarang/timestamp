@@ -1,0 +1,151 @@
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const shortId = require('shortid');
+require('dotenv').config();
+
+const app = express();
+const router = express.Router();
+
+mongoose.connect("mongodb+srv://tarang:test1234@cluster0.4ogzwy8.mongodb.net/")
+    .then(() => console.log("Database is connected"))
+    .catch((err) => console.log(err));
+
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(cors());
+app.use(express.static('public'));
+
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/views/index.html');
+});
+
+const exerciseSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+    },
+    _id: {
+        type: String,
+        required: true
+    },
+    description: {
+        type: String,
+        required: true
+    },
+    duration: {
+        type: Number,
+        required: true
+    },
+    date: {
+        type: String,
+        default: new Date().toDateString()
+    },
+});
+
+const userSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+    },
+    _id: {
+        type: String,
+        required: true
+    },
+    log: [exerciseSchema],
+});
+
+const User = mongoose.model("User", userSchema);
+
+router.post("/users", async (req, res) => {
+    const body = req.body;
+    const num = shortId();
+    let postn = await User.create({
+        name: body.username,
+        _id: num
+    });
+    return res.json({
+        username: body.username,
+        _id: num
+    });
+});
+
+router.post("/users/:_id/exercises", async (req, res) => {
+    const id = req.params._id;
+    let dateObject;
+    if (!req.body.date) dateObject = new Date();
+    else dateObject = new Date(req.body.date);
+    const readableDate = dateObject.toDateString();
+    const userRecord = await User.findOne({ _id: id });
+    if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+    }
+    const postExercise = {
+        name: userRecord.name,
+        _id: id,
+        description: req.body.description,
+        duration: Number(req.body.duration),
+        date: readableDate
+    };
+
+    userRecord.log.push(postExercise);
+    await userRecord.save();
+    res.json({
+        username: userRecord.name,
+        description: req.body.description,
+        duration: Number(req.body.duration),
+        date: readableDate,
+        _id: id,
+    });
+});
+
+router.get("/users", async (req, res) => {
+    let users = await User.find();
+    return res.json(
+        users.map(user => ({
+            username: user.name,
+            _id: user._id
+        }))
+    );
+});
+
+router.get("/users/:_id/logs", async (req, res) => {
+    const id = req.params._id;
+    const fromDate = req.query.from ? new Date(req.query.from) : null;
+    const toDate = req.query.to ? new Date(req.query.to) : null;
+    const limit = Number(req.query.limit) || Infinity;
+
+    let userRecord = await User.findOne({ _id: id });
+
+    if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+    }
+
+    const logs = [];
+    let count = 0;
+
+    userRecord.log.forEach(entry => {
+        const entryDate = new Date(entry.date);
+        if (
+            (!fromDate || entryDate >= fromDate) &&
+            (!toDate || entryDate <= toDate) &&
+            count < limit
+        ) {
+            logs.push(entry);
+            count++;
+        }
+    });
+
+    return res.json({
+        username: userRecord.name,
+        count: logs.length,
+        _id: id,
+        log: logs
+    });
+});
+
+app.use("/api", router);
+
+const listener = app.listen(process.env.PORT || 3000, () => {
+    console.log('Your app is listening on port ' + listener.address().port);
+});
